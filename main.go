@@ -10,6 +10,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/joho/godotenv"
+
+	"github.com/kvn-alcantara/ai-agent/tool"
 )
 
 func main() {
@@ -28,7 +30,8 @@ func main() {
 		return scanner.Text(), true
 	}
 
-	agent := NewAgent(&client, getUserMessage)
+	tools := []tool.ToolDefinition{tool.ReadFileDefinition}
+	agent := NewAgent(&client, getUserMessage, tools)
 	err = agent.Run(context.TODO())
 	if err != nil {
 		fmt.Printf("Error: %s\n", err.Error())
@@ -36,17 +39,16 @@ func main() {
 }
 
 // NewAgent creates a new instance of Agent with the provided Anthropics client and user message function.
-func NewAgent(client *anthropic.Client, getUserMessage func() (string, bool)) *Agent {
+func NewAgent(
+	client *anthropic.Client,
+	getUserMessage func() (string, bool),
+	tools []tool.ToolDefinition,
+) *Agent {
 	return &Agent{
 		client:         client,
 		getUserMessage: getUserMessage,
+		tools:          tools,
 	}
-}
-
-// Agent represents an AI agent that interacts with the user and processes messages using the Anthropics client.
-type Agent struct {
-	client         *anthropic.Client
-	getUserMessage func() (string, bool)
 }
 
 // Run starts the interaction loop for the Agent, processing user input and generating responses.
@@ -83,10 +85,30 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) runInference(ctx context.Context, conversation []anthropic.MessageParam) (*anthropic.Message, error) {
+	tools := []anthropic.ToolUnionParam{}
+	for _, tool := range a.tools {
+		tools = append(tools, anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        tool.Name,
+				Description: anthropic.String(tool.Description),
+				InputSchema: tool.InputSchema,
+			},
+		})
+	}
+
 	message, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.ModelClaude3_7SonnetLatest,
 		MaxTokens: int64(1024),
 		Messages:  conversation,
+		Tools:     tools,
 	})
+
 	return message, err
+}
+
+// Agent represents an AI agent that interacts with the user and processes messages using the Anthropics client.
+type Agent struct {
+	client         *anthropic.Client
+	getUserMessage func() (string, bool)
+	tools          []tool.ToolDefinition
 }
